@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>pchat prototype</title>
+<style>
+:root{--bg:#f2f6f7;--fg:#14232b;--mut:#5d7279;--card:#fff;--line:#c9d6da;--ac:#0e7c86;--acfg:#fff;--err:#a3340f;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1a1f;--fg:#e4eef0;--mut:#8ba3aa;--card:#16262d;--line:#2b414a;--ac:#4dc3cc;--acfg:#06252a;--err:#ff9a76;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0f1a1f;--fg:#e4eef0;--mut:#8ba3aa;--card:#16262d;--line:#2b414a;--ac:#4dc3cc;--acfg:#06252a;--err:#ff9a76;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:720px;margin:0 auto;padding:16px}
+h1{font-size:20px;margin:0 0 2px;font-weight:600}
+h2{font-size:14px;margin:18px 0 8px;font-weight:600}
+.mut{color:var(--mut);font-size:13px}
+.err{color:var(--err)}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+button,select,input{font:inherit;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:7px 12px}
+input[type=text],#rn,#in{flex:1;min-width:120px}
+button{cursor:pointer}
+button.on,button.go{background:var(--ac);color:var(--acfg);border-color:var(--ac)}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+.room{display:flex;flex-direction:column;align-items:flex-start;line-height:1.3}
+.room small{font-size:12px;opacity:.8;font-family:ui-monospace,Menlo,monospace}
+.box{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-top:8px}
+.m{padding:8px 0;border-bottom:1px solid var(--line)}
+.m:last-child{border:0}
+.meta{font:12px ui-monospace,Menlo,monospace;color:var(--mut)}
+.hid{font-style:italic;color:var(--mut)}
+.tag{font-size:12px;border:1px solid var(--ac);color:var(--ac);border-radius:99px;padding:0 8px}
+pre{white-space:pre-wrap;word-break:break-all;font:11px/1.4 ui-monospace,Menlo,monospace;margin:8px 0 0;color:var(--mut)}
+#compose{display:none;gap:8px;margin-top:8px}
+</style>
+</head>
+<body>
+<main>
+<h1>pchat prototype</h1>
+<p class="mut" style="margin:0">Simulated chain running in this page. Rooms claim a pre-launched chain, and every message is signed on this device.</p>
+<p id="msg" style="min-height:22px;margin:8px 0 0"></p>
+<h2>Device</h2>
+<div class="row"><span id="users" class="row"></span></div>
+<h2>Chain pool</h2>
+<div id="pool" class="mut"></div>
+<h2>Rooms</h2>
+<div class="row"><input id="rn" type="text" placeholder="Room name" aria-label="Room name"><select id="rt" aria-label="Room type"><option value="public">Public</option><option value="private">Private</option></select><button class="go" onclick="createRoom()">Create room</button></div>
+<div id="rooms" class="row" style="margin-top:8px"></div>
+<h2>Chat</h2>
+<div class="box"><div id="chat"></div></div>
+<div id="compose"><input id="in" type="text" placeholder="Message" aria-label="Message"><button class="go" onclick="sendText()">Send</button></div>
+<p class="row mut" style="margin-top:12px"><label><input type="checkbox" onchange="S.raw=this.checked;draw()"> Show raw chain</label></p>
+<p class="mut">Prototype stand-ins: ECDSA P-256 for signing, AES-GCM for private rooms, JSON for bjson. A real build would use Komodo assetchains.</p>
+</main>
+<script>
+const enc=new TextEncoder(),dc=new TextDecoder();
+const S={users:{},cur:'alice',pool:[],n:0,rooms:[],chains:{},bal:{},sel:null,raw:false,cool:{},msg:'',bad:0};
+const $=id=>document.getElementById(id);
+const hex=b=>[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('');
+const unhex=h=>new Uint8Array(h.match(/../g).map(x=>parseInt(x,16)));
+const sha=async s=>hex(await crypto.subtle.digest('SHA-256',enc.encode(s)));
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const ECP={name:'ECDSA',namedCurve:'P-256'},ECS={name:'ECDSA',hash:'SHA-256'};
+function say(t,bad){S.msg=t;S.bad=bad?1:0;draw()}
+async function mkUser(id,name){
+ const k=await crypto.subtle.generateKey(ECP,true,['sign','verify']);
+ const pub=hex(await crypto.subtle.exportKey('raw',k.publicKey));
+ S.users[id]={name,k,pub,addr:'R'+(await sha(pub)).slice(0,10)};
+}
+function addPool(){S.n++;S.pool.push({name:'pool_'+String(S.n).padStart(4,'0'),used:false})}
+function sw(id){S.cur=id;draw()}
+function pick(i){S.sel=S.rooms[i];draw()}
+async function createRoom(){
+ const name=$('rn').value.trim(),type=$('rt').value;
+ if(!name)return say('Name the room first.',1);
+ const c=S.pool.find(p=>!p.used);
+ if(!c)return say('The pool is empty. A new chain is launching, so try again in a few seconds.',1);
+ c.used=true;S.chains[c.name]=[];
+ const u=S.users[S.cur];
+ const r={name,type,chain:c.name,epoch:1,members:[S.cur],inv:{}};
+ if(type==='private'){
+  r.key=await crypto.subtle.generateKey({name:'AES-GCM',length:256},true,['encrypt','decrypt']);
+  S.bal[c.name+':'+u.addr]=20;
+ }
+ S.rooms.push(r);S.sel=r;$('rn').value='';
+ say('Room created on '+c.name+', claimed from the pool.');
+}
+function faucet(){
+ const r=S.sel,u=S.users[S.cur],now=Date.now();
+ if((S.cool[u.addr]||0)>now)return say('Faucet cooldown: wait a few seconds.',1);
+ S.cool[u.addr]=now+8000;
+ const k=r.chain+':'+u.addr;S.bal[k]=(S.bal[k]||0)+20;
+ say('Faucet sent 20 coins to '+u.name+'.');
+}
+function invite(){
+ const r=S.sel,t=hex(crypto.getRandomValues(new Uint8Array(8)));
+ r.inv[t]=false;say('Single-use invite created.');
+}
+function redeem(t,uid){
+ const r=S.sel,u=S.users[uid];
+ if(r.inv[t])return say('That invite was already used. Ask for a new link.',1);
+ r.inv[t]=true;
+ if(!r.members.includes(uid))r.members.push(uid);
+ const k=r.chain+':'+u.addr;S.bal[k]=(S.bal[k]||0)+20;
+ say(u.name+' joined with the invite and received 20 coins.');
+}
+async function build(r,type,body,ref){
+ const u=S.users[S.cur];
+ const env={v:1,type,flags:r.type==='private'?1:0,ts:Date.now(),ref:ref||null,body};
+ if(env.flags){
+  const iv=crypto.getRandomValues(new Uint8Array(12));
+  env.epoch=r.epoch;env.nonce=hex(iv);
+  const aad=enc.encode(JSON.stringify([env.v,env.type,env.flags,env.epoch]));
+  env.body=hex(await crypto.subtle.encrypt({name:'AES-GCM',iv,additionalData:aad},r.key,enc.encode(body)));
+ }
+ const j=JSON.stringify(env);
+ const sig=hex(await crypto.subtle.sign(ECS,u.k.privateKey,enc.encode(j)));
+ return {env:j,pub:u.pub,sig};
+}
+async function gateway(r,tx){
+ const key=await crypto.subtle.importKey('raw',unhex(tx.pub),ECP,false,['verify']);
+ if(!await crypto.subtle.verify(ECS,key,unhex(tx.sig),enc.encode(tx.env)))throw new Error('Signature check failed.');
+ const addr='R'+(await sha(tx.pub)).slice(0,10),bk=r.chain+':'+addr;
+ if((S.bal[bk]||0)<1)throw new Error('No coins on this chain. Request coins or use an invite.');
+ S.bal[bk]--;
+ const ch=S.chains[r.chain];
+ ch.push({h:ch.length+1,txid:(await sha(tx.env+tx.sig)).slice(0,16),from:addr,tx});
+}
+async function send(type,body,ref){
+ const r=S.sel;if(!r)return;
+ try{await gateway(r,await build(r,type,body,ref));S.msg='';S.bad=0}catch(e){S.msg=e.message;S.bad=1}
+ draw();
+}
+function sendText(){const v=$('in').value.trim();if(!v)return;$('in').value='';send('text',v)}
+function hide(id){send('hide','',id)}
+async function open1(r,e){
+ if(!e.flags)return e.body;
+ if(!r.members.includes(S.cur))return null;
+ try{
+  const aad=enc.encode(JSON.stringify([e.v,e.type,e.flags,e.epoch]));
+  return dc.decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:unhex(e.nonce),additionalData:aad},r.key,unhex(e.body)));
+ }catch(x){return null}
+}
+const nameOf=a=>{const k=Object.keys(S.users).find(i=>S.users[i].addr===a);return k?S.users[k].name:a};
+async function chatHtml(){
+ const r=S.sel,u=S.users[S.cur];
+ if(!r){$('compose').style.display='none';return '<span class="mut">Create a room, or pick one above, to start chatting.</span>'}
+ const priv=r.type==='private',mem=r.members.includes(S.cur),bal=S.bal[r.chain+':'+u.addr]||0;
+ $('compose').style.display=(!priv||mem)?'flex':'none';
+ let h=`<div class="row"><b>${esc(r.name)}</b><span class="tag">${r.type}</span><span class="meta">${r.chain}</span><span class="meta">${esc(u.name)}: ${bal} coins</span></div>`;
+ const ch=S.chains[r.chain],hid={};
+ ch.forEach(b=>{const e=JSON.parse(b.tx.env);if(e.type==='hide'&&e.ref){const t=ch.find(x=>x.txid===e.ref);if(t&&t.from===b.from)hid[e.ref]=1}});
+ let rows='';
+ for(const b of ch){
+  const e=JSON.parse(b.tx.env);if(e.type!=='text')continue;
+  let t;
+  if(hid[b.txid])t='<span class="hid">Hidden by sender (still on the chain)</span>';
+  else{const x=await open1(r,e);t=x===null?'<span class="hid">Encrypted. Join with an invite to read.</span>':esc(x)}
+  rows+=`<div class="m"><div>${t}</div><div class="meta">#${b.h} · ${b.txid} · ${esc(nameOf(b.from))}${b.from===u.addr&&!hid[b.txid]?` · <a href="#" onclick="hide('${b.txid}');return false">hide</a>`:''}</div></div>`;
+ }
+ h+=rows||'<p class="mut">No messages yet.</p>';
+ if(!priv)h+=`<div class="row" style="margin-top:8px"><button onclick="faucet()">Request 20 coins</button></div>`;
+ else if(mem){
+  h+=`<div class="row" style="margin-top:8px"><button onclick="invite()">New invite link</button></div>`;
+  for(const t in r.inv)h+=`<div class="m"><div class="meta">pchat://join/${r.chain}#${t} · ${r.inv[t]?'used':'open'}</div>${r.inv[t]?'':Object.keys(S.users).map(i=>`<button onclick="redeem('${t}','${i}')" style="margin:6px 6px 0 0">Redeem as ${S.users[i].name}</button>`).join('')}</div>`;
+ }else h+='<p class="mut">This room is private. Switch to a member device, or redeem an invite as this user.</p>';
+ if(S.raw)h+='<pre>'+esc(JSON.stringify(ch.slice(-4).map(b=>({h:b.h,txid:b.txid,from:b.from,env:b.tx.env.slice(0,220),sig:b.tx.sig.slice(0,24)+'…'})),null,1))+'</pre>';
+ return h;
+}
+let dt=0;
+async function draw(){
+ const t=++dt,u=S.users[S.cur];
+ $('users').innerHTML=Object.keys(S.users).map(i=>`<button class="${i===S.cur?'on':''}" onclick="sw('${i}')">${S.users[i].name}</button>`).join('')+`<span class="meta">${u.addr}</span>`;
+ const free=S.pool.filter(p=>!p.used).length;
+ $('pool').textContent=`${free} free, ${S.pool.length-free} assigned. A new chain launches every few seconds while fewer than 4 are free.`;
+ $('rooms').innerHTML=S.rooms.map((r,i)=>`<button class="room ${S.sel===r?'on':''}" onclick="pick(${i})">${esc(r.name)}<small>${r.type} · ${r.chain}</small></button>`).join('')||'<span class="mut">No rooms yet.</span>';
+ $('msg').textContent=S.msg;$('msg').className=S.bad?'err':'mut';
+ const h=await chatHtml();
+ if(t===dt)$('chat').innerHTML=h;
+}
+$('in').addEventListener('keydown',e=>{if(e.key==='Enter')sendText()});
+(async()=>{
+ await mkUser('alice','Alice');await mkUser('bob','Bob');
+ for(let i=0;i<4;i++)addPool();
+ setInterval(()=>{if(S.pool.filter(p=>!p.used).length<4){addPool();draw()}},3000);
+ draw();
+})();
+</script>
+</body>
+</html>
