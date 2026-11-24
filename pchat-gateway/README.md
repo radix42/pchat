@@ -28,6 +28,9 @@ Each room chain runs on two `komodod` nodes, both mining, peered only with each 
 A chain is only marked free once both nodes are mining, connected to each other, and past the premine maturity
 height. A watchdog restarts any node that dies, and reads fail over to the second node. The current design runs
 both nodes on one host; for two machines, give the nodes real addresses in `nodeArgs` instead of loopback.
+To let desktop nodes join and mine a room's chain, set `BIND_HOST=0.0.0.0` and `PUBLIC_HOST=<address users can reach>`,
+and open the chain P2P ports (`P2P_PORT_BASE` upward, two per chain) in your firewall. Room responses then include the chain's
+genesis flags and these peer addresses. RPC always stays on loopback.
 `AC_BLOCKTIME` (default 10 seconds) sets block speed, so the 101-block wait is about 17 minutes per chain.
 
 ## API

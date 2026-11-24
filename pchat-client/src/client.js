@@ -7,8 +7,9 @@ import { hexToBytes, bytesToHex } from '@noble/hashes/utils';
 // keystore: anything with get(roomId) / set(roomId, {key, epoch}). Back it with secure storage in the apps.
 export class PchatClient {
   constructor({ gateway, key, keystore = new Map() }) {
-    this.gw = new Gateway(gateway);
-    this.gatewayUrl = gateway;
+    // gateway: a base URL string, or an object with the same methods (the desktop app supplies one backed by a local node)
+    this.gw = typeof gateway === 'string' ? new Gateway(gateway) : gateway;
+    this.gatewayUrl = typeof gateway === 'string' ? gateway : null;
     this.key = key;
     this.keys = keystore;
     this.rooms = new Map();
@@ -36,7 +37,7 @@ export class PchatClient {
     const k = await this.keys.get(id);
     if (!k) throw new Error('Only members can invite');
     const { token } = await this.gw.invite(id);
-    return `pchat://join/${token}?g=${encodeURIComponent(this.gatewayUrl)}#${k.key}.${k.epoch}`;
+    return `pchat://join/${token}?g=${encodeURIComponent(this.gw.baseFor ? this.gw.baseFor(id) : this.gatewayUrl)}#${k.key}.${k.epoch}`;
   }
 
   async redeemInvite(link) {

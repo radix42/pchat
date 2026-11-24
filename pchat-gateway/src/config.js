@@ -11,7 +11,8 @@ export const cfg = {
   acSupply: +env.AC_SUPPLY || 1000000,
   // premined coinbase matures after ~100 blocks, so a chain is only "free" past this height
   readyHeight: +env.READY_HEIGHT || 101,
-  bindHost: env.BIND_HOST || '127.0.0.1', // interface the chain nodes listen on
+  bindHost: env.BIND_HOST || '127.0.0.1', // interface the chain nodes accept peers on (0.0.0.0 to accept desktop nodes)
+  publicHost: env.PUBLIC_HOST || '127.0.0.1', // address desktop nodes are told to connect to
   acBlocktime: +env.AC_BLOCKTIME || 10, // seconds per block; shorter means the premine matures sooner
   faucetPubkey: env.FAUCET_PUBKEY,
   faucetWif: env.FAUCET_WIF,

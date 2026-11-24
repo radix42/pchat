@@ -13,19 +13,19 @@ export const get = (name) => state.pool.find((c) => c.name === name);
 //   -ac_name        runs this standalone assetchain, never the Komodo mainnet chain
 //   -connect        pins peers to the room's own other node, so there is no outbound peering at all
 //   -dnsseed=0      no seed lookups; -upnp=0 no port mapping
-//   -bind/-rpcbind  loopback by default, so nothing is exposed to the network
+//   -bind           loopback by default (BIND_HOST=0.0.0.0 lets desktop nodes connect in); RPC is always loopback to the network
 // Together these keep the nodes from contacting or downloading anything from Komodo mainnet.
 function nodeArgs(c, n, peer) {
   const dir = path.resolve(cfg.dataDir, 'chains', c.name, n.role);
   fs.mkdirSync(dir, { recursive: true });
   return [
-    `-ac_name=${c.name}`, `-ac_supply=${cfg.acSupply}`, `-ac_blocktime=${cfg.acBlocktime}`, `-pubkey=${cfg.faucetPubkey}`,
+    `-ac_name=${c.name}`, `-ac_supply=${c.supply ?? cfg.acSupply}`, `-ac_blocktime=${c.blocktime ?? cfg.acBlocktime}`, `-pubkey=${cfg.faucetPubkey}`,
     '-gen', '-genproclimit=1',
     `-port=${n.p2pPort}`, `-bind=${cfg.bindHost}:${n.p2pPort}`, '-listen=1',
-    `-connect=${cfg.bindHost}:${peer.p2pPort}`, '-dnsseed=0', '-upnp=0',
+    `-connect=127.0.0.1:${peer.p2pPort}`, '-dnsseed=0', '-upnp=0',
     '-server=1', '-txindex=1', '-addressindex=1', '-timestampindex=1', '-spentindex=1',
     `-rpcuser=${cfg.rpcUser}`, `-rpcpassword=${cfg.rpcPass}`, `-rpcport=${n.rpcPort}`,
-    `-rpcbind=${cfg.bindHost}`, '-rpcallowip=127.0.0.1',
+    '-rpcbind=127.0.0.1', '-rpcallowip=127.0.0.1',
     `-datadir=${dir}`, ...cfg.extraFlags,
   ];
 }
@@ -74,7 +74,10 @@ function create() {
     { role: 'a', rpcPort: cfg.rpcBase + i, p2pPort: cfg.p2pBase + i },
     { role: 'b', rpcPort: cfg.rpcBase + i + 1, p2pPort: cfg.p2pBase + i + 1 },
   ];
-  const c = { name: 'pool_' + String(state.seq).padStart(4, '0'), nodes, rpcPort: nodes[0].rpcPort, status: 'launching' };
+  const c = {
+    name: 'pool_' + String(state.seq).padStart(4, '0'), nodes, rpcPort: nodes[0].rpcPort, status: 'launching',
+    supply: cfg.acSupply, blocktime: cfg.acBlocktime, // genesis-defining; published so desktop nodes build the same chain
+  };
   state.pool.push(c);
   nodes.forEach((n) => launchNode(c, n));
   prepare(c).catch((e) => console.error('[pool]', c.name, e.message));

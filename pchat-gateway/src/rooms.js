@@ -10,7 +10,18 @@ const lastDrip = new Map();
 
 export const find = (id) => state.rooms.find((r) => r.id === id);
 export const chainOf = (room) => pool.get(room.chain);
-const view = (r) => ({ id: r.id, name: r.name, type: r.type, created: r.created });
+// chain = what a desktop node needs to run this room's chain: genesis flags and the gateway's peer addresses
+const view = (r) => {
+  const c = pool.get(r.chain);
+  return {
+    id: r.id, name: r.name, type: r.type, created: r.created,
+    chain: c && {
+      name: c.name,
+      flags: [`-ac_supply=${c.supply ?? cfg.acSupply}`, `-ac_blocktime=${c.blocktime ?? cfg.acBlocktime}`],
+      peers: c.nodes.map((n) => `${cfg.publicHost}:${n.p2pPort}`),
+    },
+  };
+};
 
 export function directory() {
   return state.rooms.filter((r) => r.type === 'public').map(view);

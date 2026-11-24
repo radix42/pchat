@@ -1,0 +1,32 @@
+{
+  "name": "pchat-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "pchat desktop app: runs a local Komodo node per room and mines blocks for it",
+  "author": "pchat",
+  "type": "module",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test",
+    "dist": "electron-builder --win nsis"
+  },
+  "dependencies": {
+    "@noble/ciphers": "1.0.0",
+    "@noble/curves": "1.6.0",
+    "@noble/hashes": "1.5.0",
+    "@scure/base": "1.1.9",
+    "@scure/bip39": "1.4.0"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.pchat.desktop",
+    "productName": "pchat",
+    "files": ["main.js", "preload.cjs", "src/**", "renderer/**", "package.json"],
+    "win": { "target": "nsis" },
+    "nsis": { "oneClick": false, "perMachine": false, "allowToChangeInstallationDirectory": true }
+  }
+}
